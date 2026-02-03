@@ -1,5 +1,5 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 from PIL import Image
 import io
 import base64
@@ -22,7 +22,7 @@ except:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAWfqtaVglf_OpyAn_BX96tRj3SFjOHnIY")
 
 os.environ['GEMINI_API_KEY'] = GEMINI_API_KEY
-client = genai.Client()
+genai.configure(api_key=GEMINI_API_KEY)
 
 # ML Model API Configuration
 ML_MODEL_API_URL = "https://deepfake-api-sn1g.onrender.com/predict"
@@ -192,10 +192,8 @@ Describe now:"""
             }
         ]
         
-        response = client.models.generate_content(
-            model='models/gemini-3-flash-preview',
-            contents=contents
-        )
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(contents)
         
         return response.text.strip()
     except Exception as e:
@@ -270,10 +268,8 @@ Analyze the image now and respond ONLY with the JSON object."""
             }
         ]
         
-        response = client.models.generate_content(
-            model='models/gemini-3-flash-preview',
-            contents=contents
-        )
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(contents)
         
         # Parse the response
         result_text = response.text.strip()
