@@ -279,6 +279,39 @@ Analyze the image now and respond ONLY with the JSON object."""
         
         return None, f"Error analyzing image: {str(e)}"
 
+def format_ml_results_as_analysis(ml_results):
+    """Convert ML model results to analysis format when Gemini fails"""
+    try:
+        # Extract ML model predictions
+        verdict = ml_results.get('verdict', 'UNKNOWN')
+        confidence = ml_results.get('confidence', 0)
+        
+        # Create a simplified analysis structure
+        analysis = {
+            'authenticity_score': int((1 - confidence) * 100) if verdict == 'FAKE' else int(confidence * 100),
+            'verdict': verdict,
+            'risk_level': 'HIGH' if confidence > 0.7 else ('MEDIUM' if confidence > 0.4 else 'LOW'),
+            'confidence': int(confidence * 100),
+            'artifacts_found': ['Analysis based on Deep Learning Model only'],
+            'technical_issues': ['Gemini API unavailable - showing ML results only'],
+            'detailed_explanation': f"Deep Learning Model Analysis: This image was classified as {verdict} with {confidence*100:.1f}% confidence by our specialized deepfake detection neural network. Note: This is a preliminary ML-based analysis without additional LLM verification.",
+            'recommendations': "ML model results only. For comprehensive analysis, please try again later when the advanced LLM is available."
+        }
+        
+        return analysis
+    except Exception as e:
+        # Ultimate fallback
+        return {
+            'authenticity_score': 50,
+            'verdict': 'UNKNOWN',
+            'risk_level': 'MEDIUM',
+            'confidence': 50,
+            'artifacts_found': ['Unable to analyze'],
+            'technical_issues': ['Both ML and LLM analysis failed'],
+            'detailed_explanation': f"Analysis could not be completed: {str(e)}",
+            'recommendations': "Please try again later or verify through alternative methods."
+        }
+
 def generate_detailed_report(analysis, image_name):
     """Generate a comprehensive HTML report"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1156,7 +1189,10 @@ def main():
                     # Get image description for PDF
                     desc_status = st.empty()
                     desc_status.info("🖼️ Generating image description...")
-                    image_description = get_image_description(image)
+                    try:
+                        image_description = get_image_description(image)
+                    except Exception as e:
+                        image_description = f"Image: {uploaded_file.name} - Description unavailable (LLM error)"
                     desc_status.empty()
                     
                     # Step 2: LLM Analysis (with ML results if available)
@@ -1167,15 +1203,30 @@ def main():
                     
                     gemini_status.empty()
                     
-                    if error:
-                        st.error(f"❌ {error}")
-                    elif analysis:
-                        # Store analysis and image in session state
+                    # Handle analysis results with fallback to ML-only
+                    if error and ml_results:
+                        # Gemini failed but we have ML results - use them
+                        st.warning(f"⚠️ Advanced LLM unavailable: {error}")
+                        st.info("📊 Showing Deep Learning Model results only...")
+                        analysis = format_ml_results_as_analysis(ml_results)
                         st.session_state['analysis'] = analysis
                         st.session_state['image_description'] = image_description
                         st.session_state['image_name'] = uploaded_file.name
                         st.session_state['uploaded_image'] = image
-                        st.session_state['ml_results'] = ml_results  # Store ML results too
+                        st.session_state['ml_results'] = ml_results
+                        st.success("✅ ML Model Analysis Complete (LLM unavailable)")
+                        st.rerun()
+                    elif error and not ml_results:
+                        # Both failed
+                        st.error(f"❌ Analysis failed: {error}")
+                        st.error("❌ ML Model also unavailable. Please try again later.")
+                    elif analysis:
+                        # Success with Gemini
+                        st.session_state['analysis'] = analysis
+                        st.session_state['image_description'] = image_description
+                        st.session_state['image_name'] = uploaded_file.name
+                        st.session_state['uploaded_image'] = image
+                        st.session_state['ml_results'] = ml_results
                         st.success("✅ Complete Analysis Done! (ML Model + LLM + News Context)")
                         st.rerun()
         else:
