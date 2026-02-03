@@ -18,9 +18,9 @@ import time
 # Configure Gemini API
 # Try to get API key from Streamlit secrets first, then environment variable, then fallback to hardcoded
 try:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", "AIzaSyAWfqtaVglf_OpyAn_BX96tRj3SFjOHnIY"))
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", "AIzaSyDVqtIAk0RZzY_q7dA5Q1FIoW8YcKY18ao"))
 except:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAWfqtaVglf_OpyAn_BX96tRj3SFjOHnIY")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDVqtIAk0RZzY_q7dA5Q1FIoW8YcKY18ao")
 
 os.environ['GEMINI_API_KEY'] = GEMINI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
