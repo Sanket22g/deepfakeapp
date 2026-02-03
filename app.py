@@ -16,11 +16,16 @@ from datetime import timedelta
 import time
 
 # Configure Gemini API
-# Try to get API key from Streamlit secrets first, then environment variable, then fallback to hardcoded
+# SECURITY: Get API key from Streamlit secrets or environment variable ONLY
+# Never hardcode API keys in source code
 try:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", "AIzaSyDVqtIAk0RZzY_q7dA5Q1FIoW8YcKY18ao"))
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
 except:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDVqtIAk0RZzY_q7dA5Q1FIoW8YcKY18ao")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    st.error("⚠️ GEMINI_API_KEY not found! Please set it as an environment variable or in Streamlit secrets.")
+    st.stop()
 
 os.environ['GEMINI_API_KEY'] = GEMINI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
