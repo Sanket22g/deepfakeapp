@@ -1,5 +1,6 @@
+
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 from PIL.ExifTags import TAGS
 import io
@@ -15,20 +16,10 @@ from bs4 import BeautifulSoup
 from datetime import timedelta
 import time
 
-# Configure Gemini API
-# SECURITY: Get API key from Streamlit secrets or environment variable ONLY
-# Never hardcode API keys in source code
-try:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
-except:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY:
-    st.error("⚠️ GEMINI_API_KEY not found! Please set it as an environment variable or in Streamlit secrets.")
-    st.stop()
-
+# Configure Gemini API - Using the NEW Client-based API (same as working simple version)
+GEMINI_API_KEY = "AIzaSyBU4ls0_sslkyKRGHNJXzntEyx68PEPeGA"
 os.environ['GEMINI_API_KEY'] = GEMINI_API_KEY
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client()
 
 # ML Model API Configuration
 ML_MODEL_API_URL = "https://deepfake-api-sn1g.onrender.com/predict"
@@ -301,6 +292,11 @@ st.markdown("""
 def get_image_description(image):
     """Get a simple description of what's in the image using LLM"""
     try:
+        # Convert PIL Image to bytes
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        
         prompt = """Describe what you see in this image in 2-3 sentences. Focus on:
 - Main subjects (people, objects)
 - Actions or poses
@@ -311,8 +307,20 @@ Be concise and factual. Example: "A man in a business suit looking towards a doo
 
 Describe now:"""
 
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content([prompt, image])
+        # Use new Client API (same as working simple version)
+        contents = [
+            {
+                'parts': [
+                    {'text': prompt},
+                    {'inline_data': {'mime_type': 'image/png', 'data': base64.b64encode(img_byte_arr).decode()}}
+                ]
+            }
+        ]
+        
+        response = client.models.generate_content(
+            model='models/gemini-2.5-flash',
+            contents=contents
+        )
         
         return response.text.strip()
     except Exception as e:
@@ -394,10 +402,25 @@ Please provide your analysis in the following JSON format:
 
 Analyze the image now and respond ONLY with the JSON object."""
 
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content([prompt, image])
+        # Convert PIL Image to bytes for the new API
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
         
-        # Parse the response
+        # Create content with image using new Client API (same as working simple version)
+        contents = [
+            {
+                'parts': [
+                    {'text': prompt},
+                    {'inline_data': {'mime_type': 'image/png', 'data': base64.b64encode(img_byte_arr).decode()}}
+                ]
+            }
+        ]
+        
+        response = client.models.generate_content(
+            model='models/gemini-2.5-flash',
+            contents=contents
+        )
         result_text = response.text.strip()
         
         # Try to extract JSON from the response
