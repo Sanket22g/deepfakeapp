@@ -20,8 +20,10 @@ import time
 # For local development: Set GEMINI_API_KEY environment variable
 # For Streamlit Cloud: Configure in Manage app -> Settings -> Secrets
 try:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+    # Try Streamlit secrets first (works on Cloud and local with secrets.toml)
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
+    # Fallback to environment variable
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
