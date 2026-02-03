@@ -169,10 +169,6 @@ st.markdown("""
 def get_image_description(image):
     """Get a simple description of what's in the image using LLM"""
     try:
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        
         prompt = """Describe what you see in this image in 2-3 sentences. Focus on:
 - Main subjects (people, objects)
 - Actions or poses
@@ -183,17 +179,8 @@ Be concise and factual. Example: "A man in a business suit looking towards a doo
 
 Describe now:"""
 
-        contents = [
-            {
-                'parts': [
-                    {'text': prompt},
-                    {'inline_data': {'mime_type': 'image/png', 'data': base64.b64encode(img_byte_arr).decode()}}
-                ]
-            }
-        ]
-        
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(contents)
+        response = model.generate_content([prompt, image])
         
         return response.text.strip()
     except Exception as e:
@@ -202,11 +189,6 @@ Describe now:"""
 def analyze_image_with_gemini(image, news_context=None, ml_results=None):
     """Analyze image using LLM API for deepfake detection with news context and ML model results"""
     try:
-        # Convert PIL Image to bytes for the new API
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        
         # Add news context to prompt if available
         news_info = ""
         if news_context:
@@ -258,18 +240,8 @@ Please provide your analysis in the following JSON format:
 
 Analyze the image now and respond ONLY with the JSON object."""
 
-        # Create content with image
-        contents = [
-            {
-                'parts': [
-                    {'text': prompt},
-                    {'inline_data': {'mime_type': 'image/png', 'data': base64.b64encode(img_byte_arr).decode()}}
-                ]
-            }
-        ]
-        
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(contents)
+        response = model.generate_content([prompt, image])
         
         # Parse the response
         result_text = response.text.strip()
