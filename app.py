@@ -16,8 +16,26 @@ from bs4 import BeautifulSoup
 from datetime import timedelta
 import time
 
-# Configure Gemini API - Using the NEW Client-based API (same as working simple version)
-GEMINI_API_KEY = "AIzaSyBU4ls0_sslkyKRGHNJXzntEyx68PEPeGA"
+# Configure Gemini API - Using Streamlit secrets for security
+# For local development: Set GEMINI_API_KEY environment variable
+# For Streamlit Cloud: Configure in Manage app -> Settings -> Secrets
+try:
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+except:
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    st.error("⚠️ **API Key Not Found!**")
+    st.info("""
+    **For Streamlit Cloud:** Configure GEMINI_API_KEY in app settings (Manage app → Settings → Secrets)
+    
+    **For Local Development:** Set environment variable:
+    ```
+    $env:GEMINI_API_KEY="your-api-key-here"
+    ```
+    """)
+    st.stop()
+
 os.environ['GEMINI_API_KEY'] = GEMINI_API_KEY
 client = genai.Client()
 
