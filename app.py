@@ -1371,6 +1371,14 @@ def main():
         st.header("📊 Analysis Results")
         
         if uploaded_file is not None:
+            # Important notice about first-time usage
+            st.warning("""
+            ⏱️ **First-Time Users Notice:**  
+            If this is your first analysis or the system hasn't been used recently, the initial analysis may take **60-90 seconds** because our ML detection server (hosted on Render) needs to start up. Subsequent analyses will be much faster (5-10 seconds).
+            
+            Please be patient and don't refresh the page during analysis.
+            """)
+            
             if st.button("🔍 Analyze Image", type="primary", use_container_width=True):
                 with st.spinner("🔄 Analyzing image with AI systems..."):
                     # Fetch latest news for context
@@ -1398,7 +1406,7 @@ def main():
                     # Step 1: Try ML Model API first
                     ml_results = None
                     ml_status = st.empty()
-                    ml_status.info("🤖 Step 2/4: Sending to Deep Learning Model API...")
+                    ml_status.info("🤖 Step 2/4: Contacting Deep Learning Model API... (May take 60-90 seconds on first use if server is starting)")
                     
                     ml_data, ml_error = analyze_with_ml_model(image)
                     
