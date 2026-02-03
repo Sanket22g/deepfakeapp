@@ -52,6 +52,8 @@ tests/
 
 # Data
 openfake_dataset/
+openfake_dataset_20k.zip
+*.zip
 
 # Jupyter
 *.ipynb
