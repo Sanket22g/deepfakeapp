@@ -1373,10 +1373,15 @@ def main():
         if uploaded_file is not None:
             # Important notice about first-time usage
             st.warning("""
-            ⏱️ **First-Time Users Notice:**  
-            If this is your first analysis or the system hasn't been used recently, the initial analysis may take **60-90 seconds** because our ML detection server (hosted on Render) needs to start up. Subsequent analyses will be much faster (5-10 seconds).
+            ⏱️ **Important: Using Free Server (Render.com)**  
+            Our ML detection model runs on a **free Render server** which goes to sleep after inactivity.
             
-            Please be patient and don't refresh the page during analysis.
+            **What to expect:**
+            - **First analysis or after idle period:** May take **60-90 seconds** (server waking up)
+            - **If it fails:** Please **try 2-3 times** - the server needs time to fully start
+            - **After warm-up:** Subsequent analyses will be fast (5-10 seconds)
+            
+            💡 **Tip:** Don't refresh the page during analysis. If it times out, just click Analyze again!
             """)
             
             if st.button("🔍 Analyze Image", type="primary", use_container_width=True):
@@ -1406,7 +1411,7 @@ def main():
                     # Step 1: Try ML Model API first
                     ml_results = None
                     ml_status = st.empty()
-                    ml_status.info("🤖 Step 2/4: Contacting Deep Learning Model API... (May take 60-90 seconds on first use if server is starting)")
+                    ml_status.info("🤖 Step 2/4: Waking up free Render server & analyzing... (First time: 60-90s, may need 2-3 tries)")
                     
                     ml_data, ml_error = analyze_with_ml_model(image)
                     
