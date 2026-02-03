@@ -1055,7 +1055,7 @@ def generate_cybersecurity_complaint(analysis, image_name, uploaded_image, user_
 def main():
     # Header
     st.markdown('<h1 class="main-header">🔍 DeepFake Detection System</h1>', unsafe_allow_html=True)
-    st.markdown("### Powered by Advanced LLM")
+    st.markdown("### Powered by Advanced LLM and Deep Learning Model")
     st.markdown("---")
     
     # Sidebar
