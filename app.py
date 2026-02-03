@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+from PIL.ExifTags import TAGS
 import io
 import base64
 from datetime import datetime
@@ -58,6 +59,84 @@ def analyze_with_ml_model(image):
         return None, "ML API connection failed"
     except Exception as e:
         return None, f"ML API error: {str(e)}"
+
+def extract_image_metadata(image):
+    """Extract comprehensive metadata from image including EXIF data"""
+    try:
+        metadata = {
+            'basic_info': {
+                'format': image.format,
+                'mode': image.mode,
+                'size': f"{image.size[0]}x{image.size[1]}",
+                'width': image.size[0],
+                'height': image.size[1]
+            },
+            'exif_data': {},
+            'suspicious_indicators': [],
+            'metadata_analysis': ''
+        }
+        
+        # Extract EXIF data
+        exif_data = image.getexif()
+        if exif_data:
+            for tag_id, value in exif_data.items():
+                tag = TAGS.get(tag_id, tag_id)
+                try:
+                    # Convert bytes to string if needed
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8', errors='ignore')
+                    metadata['exif_data'][tag] = str(value)
+                except:
+                    pass
+        
+        # Analyze metadata for suspicious indicators
+        suspicious = []
+        
+        # Check if EXIF data is missing (common in AI-generated images)
+        if not exif_data or len(metadata['exif_data']) == 0:
+            suspicious.append("⚠️ No EXIF metadata found - common in AI-generated or edited images")
+        
+        # Check for editing software indicators
+        if 'Software' in metadata['exif_data']:
+            software = metadata['exif_data']['Software'].lower()
+            if any(editor in software for editor in ['photoshop', 'gimp', 'paint.net', 'affinity']):
+                suspicious.append(f"⚠️ Editing software detected: {metadata['exif_data']['Software']}")
+        
+        # Check for missing camera information (suspicious for photos)
+        camera_tags = ['Make', 'Model', 'LensMake', 'LensModel']
+        missing_camera = all(tag not in metadata['exif_data'] for tag in camera_tags)
+        if missing_camera and image.format in ['JPEG', 'JPG']:
+            suspicious.append("⚠️ No camera information - may be screenshot or AI-generated")
+        
+        # Check for timestamp inconsistencies
+        if 'DateTime' in metadata['exif_data'] and 'DateTimeOriginal' in metadata['exif_data']:
+            if metadata['exif_data']['DateTime'] != metadata['exif_data']['DateTimeOriginal']:
+                suspicious.append("⚠️ Timestamp inconsistency detected - possible editing")
+        
+        # Check image dimensions (AI generators often use specific sizes)
+        common_ai_sizes = [(512, 512), (1024, 1024), (768, 768), (512, 768), (768, 512)]
+        if image.size in common_ai_sizes:
+            suspicious.append(f"⚠️ Common AI-generator dimension detected: {image.size[0]}x{image.size[1]}")
+        
+        metadata['suspicious_indicators'] = suspicious
+        
+        # Generate analysis summary
+        if len(suspicious) == 0:
+            metadata['metadata_analysis'] = "✅ Metadata appears normal with no obvious red flags"
+        elif len(suspicious) <= 2:
+            metadata['metadata_analysis'] = "⚠️ Some metadata inconsistencies detected - requires further analysis"
+        else:
+            metadata['metadata_analysis'] = "🚨 Multiple metadata red flags - high suspicion of manipulation"
+        
+        return metadata
+        
+    except Exception as e:
+        return {
+            'basic_info': {'error': str(e)},
+            'exif_data': {},
+            'suspicious_indicators': ['Error extracting metadata'],
+            'metadata_analysis': 'Unable to extract metadata'
+        }
 
 def fetch_deepfake_news():
     """Fetch latest deepfake news from multiple sources"""
@@ -186,8 +265,8 @@ Describe now:"""
     except Exception as e:
         return f"Unable to generate image description: {str(e)}"
 
-def analyze_image_with_gemini(image, news_context=None, ml_results=None):
-    """Analyze image using LLM API for deepfake detection with news context and ML model results"""
+def analyze_image_with_gemini(image, news_context=None, ml_results=None, metadata=None):
+    """Analyze image using LLM API for deepfake detection with news context, ML model results, and metadata"""
     try:
         # Add news context to prompt if available
         news_info = ""
@@ -205,8 +284,20 @@ def analyze_image_with_gemini(image, news_context=None, ml_results=None):
             ml_info += f"ML Model Findings: {json.dumps(ml_results, indent=2)}\n"
             ml_info += "\nPlease review the ML model's findings and provide your expert analysis, considering both the ML results and your own visual inspection.\n"
         
+        # Add metadata analysis to prompt if available
+        metadata_info = ""
+        if metadata:
+            metadata_info = f"\n\n**IMAGE METADATA ANALYSIS:**\n"
+            metadata_info += f"Basic Info: {json.dumps(metadata.get('basic_info', {}), indent=2)}\n"
+            if metadata.get('exif_data'):
+                metadata_info += f"EXIF Data Available: {len(metadata['exif_data'])} tags found\n"
+                metadata_info += f"Key EXIF: {json.dumps(dict(list(metadata['exif_data'].items())[:5]), indent=2)}\n"
+            metadata_info += f"Suspicious Indicators: {metadata.get('suspicious_indicators', [])}\n"
+            metadata_info += f"Metadata Analysis: {metadata.get('metadata_analysis', 'N/A')}\n"
+            metadata_info += "\nConsider these metadata findings in your analysis. Missing or suspicious metadata can indicate AI generation or manipulation.\n"
+        
         # Create detailed prompt for deepfake detection
-        prompt = f"""You are an expert in deepfake detection. Analyze this image carefully and provide a detailed assessment.{news_info}{ml_info}
+        prompt = f"""You are an expert in deepfake detection. Analyze this image carefully and provide a detailed assessment.{news_info}{ml_info}{metadata_info}
 
 Please analyze the following aspects:
 1. **Authenticity Score** (0-100): Estimate how likely this is a real vs fake image
@@ -1169,10 +1260,23 @@ def main():
                     
                     image = Image.open(uploaded_file)
                     
+                    # Step 0: Extract metadata
+                    metadata_status = st.empty()
+                    metadata_status.info("📋 Step 1/4: Extracting image metadata...")
+                    metadata = extract_image_metadata(image)
+                    
+                    # Show metadata analysis
+                    if metadata.get('suspicious_indicators'):
+                        metadata_status.warning(f"⚠️ Metadata Analysis: {len(metadata['suspicious_indicators'])} red flags found")
+                    else:
+                        metadata_status.success("✅ Metadata Analysis: No immediate red flags")
+                    time.sleep(1)
+                    metadata_status.empty()
+                    
                     # Step 1: Try ML Model API first
                     ml_results = None
                     ml_status = st.empty()
-                    ml_status.info("🤖 Step 1/2: Sending to Deep Learning Model API...")
+                    ml_status.info("🤖 Step 2/4: Sending to Deep Learning Model API...")
                     
                     ml_data, ml_error = analyze_with_ml_model(image)
                     
@@ -1181,25 +1285,25 @@ def main():
                         ml_results = ml_data
                         time.sleep(1)  # Show success message briefly
                     else:
-                        ml_status.warning(f"⚠️ ML Model unavailable ({ml_error}) - Using LLM only")
+                        ml_status.warning(f"⚠️ ML Model unavailable ({ml_error}) - Continuing without ML")
                         time.sleep(1.5)
                     
                     ml_status.empty()
                     
                     # Get image description for PDF
                     desc_status = st.empty()
-                    desc_status.info("🖼️ Generating image description...")
+                    desc_status.info("🖼️ Step 3/4: Generating image description...")
                     try:
                         image_description = get_image_description(image)
                     except Exception as e:
                         image_description = f"Image: {uploaded_file.name} - Description unavailable (LLM error)"
                     desc_status.empty()
                     
-                    # Step 2: LLM Analysis (with ML results if available)
+                    # Step 2: LLM Analysis (with ML results and metadata if available)
                     gemini_status = st.empty()
-                    gemini_status.info("🧠 Step 2/2: Enhanced analysis with Advanced LLM...")
+                    gemini_status.info("🧠 Step 4/4: Enhanced analysis with Advanced LLM...")
                     
-                    analysis, error = analyze_image_with_gemini(image, news_context=news_items, ml_results=ml_results)
+                    analysis, error = analyze_image_with_gemini(image, news_context=news_items, ml_results=ml_results, metadata=metadata)
                     
                     gemini_status.empty()
                     
@@ -1207,14 +1311,15 @@ def main():
                     if error and ml_results:
                         # Gemini failed but we have ML results - use them
                         st.warning(f"⚠️ Advanced LLM unavailable: {error}")
-                        st.info("📊 Showing Deep Learning Model results only...")
+                        st.info("📊 Showing combined Metadata + Deep Learning Model results...")
                         analysis = format_ml_results_as_analysis(ml_results)
                         st.session_state['analysis'] = analysis
                         st.session_state['image_description'] = image_description
                         st.session_state['image_name'] = uploaded_file.name
                         st.session_state['uploaded_image'] = image
                         st.session_state['ml_results'] = ml_results
-                        st.success("✅ ML Model Analysis Complete (LLM unavailable)")
+                        st.session_state['metadata'] = metadata
+                        st.success("✅ Analysis Complete (Metadata + ML Model)")
                         st.rerun()
                     elif error and not ml_results:
                         # Both failed
@@ -1227,7 +1332,8 @@ def main():
                         st.session_state['image_name'] = uploaded_file.name
                         st.session_state['uploaded_image'] = image
                         st.session_state['ml_results'] = ml_results
-                        st.success("✅ Complete Analysis Done! (ML Model + LLM + News Context)")
+                        st.session_state['metadata'] = metadata
+                        st.success("✅ Complete Analysis Done! (Metadata + ML Model + LLM + News Context)")
                         st.rerun()
         else:
             st.info("👆 Please upload an image to begin analysis")
@@ -1285,6 +1391,43 @@ def main():
         if 'image_description' in st.session_state:
             st.markdown("### 🖼️ Image Content Description")
             st.info(st.session_state['image_description'])
+        
+        # Show metadata analysis if available
+        if 'metadata' in st.session_state:
+            metadata = st.session_state['metadata']
+            st.markdown("### 📋 Metadata Analysis")
+            
+            # Show metadata summary
+            meta_col1, meta_col2 = st.columns(2)
+            with meta_col1:
+                st.metric("EXIF Tags Found", len(metadata.get('exif_data', {})))
+            with meta_col2:
+                st.metric("Red Flags", len(metadata.get('suspicious_indicators', [])))
+            
+            # Metadata status indicator
+            if len(metadata.get('suspicious_indicators', [])) == 0:
+                st.success(metadata.get('metadata_analysis', 'No analysis'))
+            elif len(metadata.get('suspicious_indicators', [])) <= 2:
+                st.warning(metadata.get('metadata_analysis', 'No analysis'))
+            else:
+                st.error(metadata.get('metadata_analysis', 'No analysis'))
+            
+            # Expandable detailed metadata
+            with st.expander("🔍 View Detailed Metadata"):
+                if metadata.get('suspicious_indicators'):
+                    st.subheader("⚠️ Suspicious Indicators:")
+                    for indicator in metadata['suspicious_indicators']:
+                        st.write(f"• {indicator}")
+                
+                if metadata.get('exif_data'):
+                    st.subheader("📷 EXIF Data (Sample):")
+                    # Show first 10 EXIF tags
+                    for key, value in list(metadata['exif_data'].items())[:10]:
+                        st.write(f"**{key}:** {value}")
+                    if len(metadata['exif_data']) > 10:
+                        st.caption(f"... and {len(metadata['exif_data']) - 10} more tags")
+                else:
+                    st.warning("No EXIF data found in image")
         
         st.header("📄 Analysis Results")
         
