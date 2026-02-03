@@ -49,7 +49,55 @@ def analyze_with_ml_model(image):
         
         if response.status_code == 200:
             result = response.json()
-            return result, None
+            
+            # Convert API response format to expected format
+            # API returns: prediction (0 or 1), confidence (0-1), probabilities
+            # We need: verdict ("FAKE" or "REAL"), confidence (0-1)
+            prediction = result.get('prediction', 0)
+            confidence = result.get('confidence', 0.5)
+            probabilities = result.get('probabilities', {})
+            
+            # Get individual class probabilities
+            prob_fake = probabilities.get('class_0', 0)  # Probability of FAKE
+            prob_real = probabilities.get('class_1', 0)  # Probability of REAL
+            
+            # SAFETY BIAS: False negatives (fake as real) are MORE DANGEROUS than false positives
+            # Apply aggressive threshold - if there's ANY significant chance of fake, flag it
+            FAKE_DETECTION_THRESHOLD = 0.25  # If fake probability > 25%, flag as suspicious
+            UNCERTAINTY_THRESHOLD = 0.35     # If neither class is very confident, assume fake
+            
+            # Override prediction with safety-first logic
+            if prob_fake > FAKE_DETECTION_THRESHOLD:
+                # Even if model says real, if fake probability is significant, flag it
+                verdict = "FAKE"
+                confidence = prob_fake
+                prediction = 0  # Override to fake
+            elif prob_real < (1 - UNCERTAINTY_THRESHOLD):
+                # If model isn't confident it's real (< 65%), treat as suspicious
+                verdict = "FAKE"
+                confidence = prob_fake if prob_fake > 0.3 else 0.5
+                prediction = 0  # Override to fake
+            else:
+                # Standard mapping: 0 = FAKE, 1 = REAL
+                verdict = "FAKE" if prediction == 0 else "REAL"
+            
+            # Adjust confidence to reflect safety bias
+            if verdict == "FAKE":
+                # Boost confidence for fake detection (better safe than sorry)
+                confidence = max(confidence, 0.6)  # Minimum 60% confidence for fake
+            
+            # Create formatted result
+            formatted_result = {
+                'verdict': verdict,
+                'confidence': confidence,
+                'prediction': prediction,
+                'probabilities': probabilities,
+                'prob_fake': prob_fake,
+                'prob_real': prob_real,
+                'safety_bias_applied': prob_fake > FAKE_DETECTION_THRESHOLD or prob_real < (1 - UNCERTAINTY_THRESHOLD)
+            }
+            
+            return formatted_result, None
         else:
             return None, f"ML API returned status {response.status_code}"
             
@@ -299,8 +347,10 @@ def analyze_image_with_gemini(image, news_context=None, ml_results=None, metadat
         # Create detailed prompt for deepfake detection
         prompt = f"""You are an expert in deepfake detection. Analyze this image carefully and provide a detailed assessment.{news_info}{ml_info}{metadata_info}
 
+⚠️ CRITICAL SAFETY PRINCIPLE: False negatives (missing a fake) are MORE DANGEROUS than false positives (flagging a real image). When in doubt, err on the side of caution and flag as suspicious/fake. A real image being reviewed is acceptable; a deepfake spreading misinformation is not.
+
 Please analyze the following aspects:
-1. **Authenticity Score** (0-100): Estimate how likely this is a real vs fake image
+1. **Authenticity Score** (0-100): Estimate how likely this is a real vs fake image (lower score = more likely fake)
 2. **Visual Artifacts**: Look for common deepfake indicators like:
    - Unnatural facial features or asymmetry
    - Blending artifacts around face edges
@@ -309,13 +359,21 @@ Please analyze the following aspects:
    - Teeth or mouth irregularities
    - Hair texture anomalies
    - Background inconsistencies
+   - Unnatural skin texture or pores
+   - Warped or distorted features
 3. **Technical Analysis**: Check for:
    - Compression artifacts
    - Resolution inconsistencies
    - Color grading anomalies
    - Pixel-level manipulations
+   - AI generation patterns
 4. **Risk Assessment**: Categorize as LOW, MEDIUM, or HIGH risk of being a deepfake
+   - Use HIGH if ANY suspicious indicators are found
+   - Use MEDIUM if uncertain or missing metadata
+   - Use LOW only if clearly authentic with no red flags
 5. **Confidence Level**: How confident are you in this assessment (0-100%)
+
+IMPORTANT: If you find ANY suspicious indicators, classify as FAKE or at minimum HIGH risk, even if other aspects look normal. One clear artifact is enough to flag the image.
 
 Please provide your analysis in the following JSON format:
 {{
@@ -376,17 +434,44 @@ def format_ml_results_as_analysis(ml_results):
         # Extract ML model predictions
         verdict = ml_results.get('verdict', 'UNKNOWN')
         confidence = ml_results.get('confidence', 0)
+        safety_bias = ml_results.get('safety_bias_applied', False)
+        prob_fake = ml_results.get('prob_fake', 0)
+        prob_real = ml_results.get('prob_real', 0)
         
         # Create a simplified analysis structure
+        # Calculate authenticity score (higher = more likely real)
+        if verdict == 'FAKE':
+            authenticity_score = max(0, int((1 - confidence) * 100))
+        else:
+            authenticity_score = int(confidence * 100)
+        
+        # Risk level with safety bias consideration
+        if verdict == 'FAKE':
+            risk_level = 'HIGH' if confidence > 0.6 else 'MEDIUM'
+        else:
+            # Even for "REAL", if fake probability is notable, show caution
+            risk_level = 'MEDIUM' if prob_fake > 0.15 else 'LOW'
+        
+        # Build explanation with safety context
+        explanation = f"Deep Learning Model Analysis: This image was classified as {verdict} with {confidence*100:.1f}% confidence by our specialized deepfake detection neural network."
+        
+        if safety_bias:
+            explanation += f"\n\n⚠️ SAFETY BIAS APPLIED: Our system uses aggressive detection thresholds because missing a fake (false negative) is more dangerous than flagging a real image (false positive). Fake probability: {prob_fake*100:.1f}%, Real probability: {prob_real*100:.1f}%."
+        
+        if verdict == 'REAL' and prob_fake > 0.1:
+            explanation += f"\n\nNote: While classified as REAL, there is a {prob_fake*100:.1f}% chance this could be manipulated. Proceed with caution for sensitive content."
+        
+        explanation += "\n\nNote: This is a preliminary ML-based analysis without additional LLM verification."
+        
         analysis = {
-            'authenticity_score': int((1 - confidence) * 100) if verdict == 'FAKE' else int(confidence * 100),
+            'authenticity_score': authenticity_score,
             'verdict': verdict,
-            'risk_level': 'HIGH' if confidence > 0.7 else ('MEDIUM' if confidence > 0.4 else 'LOW'),
+            'risk_level': risk_level,
             'confidence': int(confidence * 100),
-            'artifacts_found': ['Analysis based on Deep Learning Model only'],
+            'artifacts_found': ['Analysis based on Deep Learning Model only', f'Fake probability: {prob_fake*100:.1f}%', f'Real probability: {prob_real*100:.1f}%'],
             'technical_issues': ['Gemini API unavailable - showing ML results only'],
-            'detailed_explanation': f"Deep Learning Model Analysis: This image was classified as {verdict} with {confidence*100:.1f}% confidence by our specialized deepfake detection neural network. Note: This is a preliminary ML-based analysis without additional LLM verification.",
-            'recommendations': "ML model results only. For comprehensive analysis, please try again later when the advanced LLM is available."
+            'detailed_explanation': explanation,
+            'recommendations': "ML model results only. For comprehensive analysis, please try again later when the advanced LLM is available. SAFETY NOTE: This system errs on the side of caution - false alarms are preferable to missing deepfakes."
         }
         
         return analysis
@@ -1147,6 +1232,15 @@ def main():
     # Header
     st.markdown('<h1 class="main-header">🔍 DeepFake Detection System</h1>', unsafe_allow_html=True)
     st.markdown("### Powered by Advanced LLM and Deep Learning Model")
+    
+    # Safety-First Philosophy Banner
+    st.info("""
+    🛡️ **Safety-First Detection Philosophy**  
+    This system uses aggressive thresholds to minimize false negatives (missing fakes). 
+    **False Positive (flagging real as fake) = Safe** | **False Negative (missing fake) = DANGEROUS**  
+    When uncertain, we flag for review. Better to check 10 images than miss 1 deepfake.
+    """)
+    
     st.markdown("---")
     
     # Sidebar
@@ -1281,7 +1375,14 @@ def main():
                     ml_data, ml_error = analyze_with_ml_model(image)
                     
                     if ml_data:
-                        ml_status.success(f"✅ ML Model Analysis Complete: {ml_data.get('verdict', 'Unknown')}")
+                        verdict_display = ml_data.get('verdict', 'Unknown')
+                        safety_bias = ml_data.get('safety_bias_applied', False)
+                        
+                        if safety_bias:
+                            ml_status.success(f"✅ ML Model: {verdict_display} ⚠️ (Safety bias applied - aggressive detection)")
+                        else:
+                            ml_status.success(f"✅ ML Model Analysis Complete: {verdict_display}")
+                        
                         ml_results = ml_data
                         time.sleep(1)  # Show success message briefly
                     else:
