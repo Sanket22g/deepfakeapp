@@ -179,7 +179,7 @@ Be concise and factual. Example: "A man in a business suit looking towards a doo
 
 Describe now:"""
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content([prompt, image])
         
         return response.text.strip()
@@ -240,7 +240,7 @@ Please provide your analysis in the following JSON format:
 
 Analyze the image now and respond ONLY with the JSON object."""
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content([prompt, image])
         
         # Parse the response
